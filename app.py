@@ -10,8 +10,11 @@ from pymongo import MongoClient
 
 load_dotenv()
 
-#Postgres schema helper
-PG_SCHEMA = os.getenv("PG_SCHEMA", "public")   # CHANGE: "public" to your own schema name
+# streamlit run d:/Code/Project-Dashboard-Template/app.py
+# streamlit run app.py
+
+# Postgres schema helper
+PG_SCHEMA = os.getenv("PG_SCHEMA", "smart_kitchen")   # CHANGE: "public" to your own schema name
 def qualify(sql: str) -> str:
     # Replace occurrences of {S}.<table> with <schema>.<table>
     return sql.replace("{S}.", f"{PG_SCHEMA}.")
@@ -20,358 +23,594 @@ def qualify(sql: str) -> str:
 CONFIG = {
     "postgres": {
         "enabled": True,
-        "uri": os.getenv("PG_URI", "postgresql+psycopg2://postgres:password@localhost:5432/postgres"),  # Will read from your .env file
+        "uri": os.getenv("PG_URI", "postgresql+psycopg2://postgres:password@localhost:5432/postgres"),
         "queries": {
-            #CHANGE: Replace all the following Postgres queries with your own queries, for each user you identified for your project's Information System
-            # Each query must have a unique name, an SQL string, a chart specification, tags (for user roles), and optional params (parameters)
-            # :doctor_id, :nurse_id, :patient_name, etc., are placeholders. Their values will come from the dashboard sidebar.
-            #User 1: DOCTORS 
-            "Doctor: patients under my care (table)": {
+            # User 1: RESTAURANT MANAGER
+            "Manager: Restaurant Order Statistics (Table)": {
                 "sql": """
-                    SELECT p.patient_id, p.name AS patient, p.age, p.room_no
-                    FROM {S}.patients p
-                    WHERE p.doctor_id = :doctor_id 
-                    ORDER BY p.name;
-                """,
-                "chart": {"type": "table"},
-                "tags": ["doctor"],
-                "params": ["doctor_id"]
-            },
-            "Doctor: most recent treatment per my patient (table)": {
-                "sql": """
-                    SELECT p.name AS patient,
-                           (SELECT MAX(t.treatment_time)
-                              FROM {S}.treatments t
-                              WHERE t.patient_id = p.patient_id) AS last_treatment
-                    FROM {S}.patients p
-                    WHERE p.doctor_id = :doctor_id
-                    ORDER BY last_treatment DESC NULLS LAST;
-                """,
-                "chart": {"type": "table"},
-                "tags": ["doctor"],
-                "params": ["doctor_id"]
-            },
-            "Doctor: high-risk (age > threshold) under my care (bar)": {
-                "sql": """
-                    SELECT p.name AS patient, p.age
-                    FROM {S}.patients p
-                    WHERE p.doctor_id = :doctor_id
-                      AND p.age > :age_threshold
-                    ORDER BY p.age DESC;
-                """,
-                "chart": {"type": "bar", "x": "patient", "y": "age"},
-                "tags": ["doctor"],
-                "params": ["doctor_id", "age_threshold"]
-            },
-            "Doctor: patients with NO treatment today (table)": {
-                "sql": """
-                    SELECT p.name, p.room_no
-                    FROM {S}.patients p
-                    WHERE p.doctor_id = :doctor_id
-                      AND NOT EXISTS (
-                        SELECT 1
-                        FROM {S}.treatments t
-                        WHERE t.patient_id = p.patient_id
-                          AND t.treatment_time::date = CURRENT_DATE
-                      );
-                """,
-                "chart": {"type": "table"},
-                "tags": ["doctor"],
-                "params": ["doctor_id"]
-            },
-            "Doctor: treatments by type for my patients (bar)": {
-                "sql": """
-                    SELECT t.treatment_type, COUNT(*)::int AS times_given
-                    FROM {S}.treatments t
-                    JOIN {S}.patients p ON p.patient_id = t.patient_id
-                    WHERE p.doctor_id = :doctor_id
-                    GROUP BY t.treatment_type
-                    ORDER BY times_given DESC;
-                """,
-                "chart": {"type": "bar", "x": "treatment_type", "y": "times_given"},
-                "tags": ["doctor"],
-                "params": ["doctor_id"]
-            },
-
-            #User 2: NURSES 
-            "Nurse: today’s tasks (treatments to administer) (table)": {
-                "sql": """
-                    SELECT p.name AS patient, t.treatment_type, t.treatment_time
-                    FROM {S}.treatments t
-                    JOIN {S}.patients p ON t.patient_id = p.patient_id
-                    WHERE t.nurse_id = :nurse_id
-                      AND t.treatment_time::date = CURRENT_DATE
-                    ORDER BY t.treatment_time;
-                """,
-                "chart": {"type": "table"},
-                "tags": ["nurse"],
-                "params": ["nurse_id"]
-            },
-            "Nurse: patients with NO treatment yet today (table)": {
-                "sql": """
-                    SELECT p.name, p.room_no
-                    FROM {S}.patients p
-                    WHERE NOT EXISTS (
-                        SELECT 1
-                        FROM {S}.treatments t
-                        WHERE t.patient_id = p.patient_id
-                          AND t.treatment_time::date = CURRENT_DATE
+                    WITH restaurant_orders AS (
+                        -- Find orders processed by each restaurant
+                        SELECT DISTINCT r.restaurant_id, o.order_id
+                        FROM {S}.restaurants r
+                        JOIN {S}.smart_kitchens sk ON r.restaurant_id = sk.restaurant_id
+                        JOIN {S}.equipments e ON sk.kitchen_id = e.kitchen_id
+                        JOIN {S}.cooking_records cr ON e.equipment_id = cr.equipment_id
+                        JOIN {S}.orders o ON cr.order_id = o.order_id
+                    ),
+                    order_revenue AS (
+                        -- Calculate revenue for each order
+                        SELECT o.order_id, SUM(od.quantity * d.price) as revenue
+                        FROM {S}.orders o
+                        JOIN {S}.order_dishs od ON o.order_id = od.order_id
+                        JOIN {S}.dishs d ON od.dish_id = d.dish_id
+                        GROUP BY o.order_id
                     )
-                    ORDER BY p.room_no, p.name;
-                """,
-                "chart": {"type": "table"},
-                "tags": ["nurse"]
-            },
-            "Nurse: medicines running low (bar)": {
-                "sql": """
-                    SELECT m.name, m.quantity
-                    FROM {S}.medicine_stock m
-                    WHERE m.quantity < :med_low_threshold
-                    ORDER BY m.quantity ASC;
-                """,
-                "chart": {"type": "bar", "x": "name", "y": "quantity"},
-                "tags": ["nurse"],
-                "params": ["med_low_threshold"]
-            },
-
-            #User 3: PHARMACISTS 
-            "Pharmacist: medicines to reorder (bar)": {
-                "sql": """
-                    SELECT m.name, m.quantity
-                    FROM {S}.medicine_stock m
-                    WHERE m.quantity < :reorder_threshold
-                    ORDER BY m.quantity ASC;
-                """,
-                "chart": {"type": "bar", "x": "name", "y": "quantity"},
-                "tags": ["pharmacist"],
-                "params": ["reorder_threshold"]
-            },
-            "Pharmacist: top 5 medicines this month (bar)": {
-                "sql": """
-                    SELECT t.treatment_type AS medicine, COUNT(*)::int AS times_given
-                    FROM {S}.treatments t
-                    WHERE t.treatment_time >= date_trunc('month', CURRENT_DATE)
-                    GROUP BY t.treatment_type
-                    ORDER BY times_given DESC
-                    LIMIT 5;
-                """,
-                "chart": {"type": "bar", "x": "medicine", "y": "times_given"},
-                "tags": ["pharmacist"]
-            },
-            "Pharmacist: which nurse gave most medicines today (table)": {
-                "sql": """
-                    SELECT n.name, COUNT(t.treatment_id)::int AS total
-                    FROM {S}.nurses n
-                    JOIN {S}.treatments t ON t.nurse_id = n.nurse_id
-                    WHERE t.treatment_time::date = CURRENT_DATE
-                    GROUP BY n.name
-                    ORDER BY total DESC
-                    LIMIT 1;
-                """,
-                "chart": {"type": "table"},
-                "tags": ["pharmacist"]
-            },
-            "Pharmacist: medicines unused in last N days (table)": {
-                "sql": """
-                    SELECT m.name
-                    FROM {S}.medicine_stock m
-                    WHERE NOT EXISTS (
-                        SELECT 1
-                        FROM {S}.treatments t
-                        WHERE t.treatment_type = m.name
-                          AND t.treatment_time >= NOW() - (:days || ' days')::interval
-                    )
-                    ORDER BY m.name;
-                """,
-                "chart": {"type": "table"},
-                "tags": ["pharmacist"],
-                "params": ["days"]
-            },
-
-            # User 4: FAMILY/GUARDIANS 
-            "Family: last treatment for my relative (table)": {
-                "sql": """
-                    SELECT t.treatment_type, t.treatment_time, n.name AS nurse
-                    FROM {S}.treatments t
-                    JOIN {S}.patients p ON t.patient_id = p.patient_id
-                    LEFT JOIN {S}.nurses n ON t.nurse_id = n.nurse_id
-                    WHERE p.name = :patient_name
-                    ORDER BY t.treatment_time DESC
-                    LIMIT 1;
-                """,
-                "chart": {"type": "table"},
-                "tags": ["guardian"],
-                "params": ["patient_name"]
-            },
-            "Family: which doctor is assigned to my relative? (table)": {
-                "sql": """
-                    SELECT p.name AS patient, d.name AS doctor, d.specialization
-                    FROM {S}.patients p
-                    JOIN {S}.doctors d ON p.doctor_id = d.doctor_id
-                    WHERE p.name = :patient_name;
-                """,
-                "chart": {"type": "table"},
-                "tags": ["guardian"],
-                "params": ["patient_name"]
-            },
-            "Family: total treatments this month for my relative (table)": {
-                "sql": """
-                    SELECT COUNT(*)::int AS treatments_this_month
-                    FROM {S}.treatments t
-                    JOIN {S}.patients p ON t.patient_id = p.patient_id
-                    WHERE p.name = :patient_name
-                      AND t.treatment_time >= date_trunc('month', CURRENT_DATE);
-                """,
-                "chart": {"type": "table"},
-                "tags": ["guardian"],
-                "params": ["patient_name"]
-            },
-
-            # User 5: MANAGERS 
-            "Mgr: total patients & average age (table)": {
-                "sql": """
-                    SELECT COUNT(*)::int AS total_patients, AVG(age)::numeric(10,1) AS avg_age
-                    FROM {S}.patients;
-                """,
-                "chart": {"type": "table"},
-                "tags": ["manager"]
-            },
-            "Mgr: patients per doctor (bar)": {
-                "sql": """
-                    SELECT d.name AS doctor, COUNT(*)::int AS num_patients
-                    FROM {S}.doctors d
-                    LEFT JOIN {S}.patients p ON d.doctor_id = p.doctor_id
-                    GROUP BY d.name
-                    ORDER BY num_patients DESC;
-                """,
-                "chart": {"type": "bar", "x": "doctor", "y": "num_patients"},
-                "tags": ["manager"]
-            },
-            "Mgr: treatments in last N days (table)": {
-                "sql": """
-                    SELECT COUNT(*)::int AS total_treatments
-                    FROM {S}.treatments
-                    WHERE treatment_time >= NOW() - (:days || ' days')::interval;
+                    SELECT r.name AS restaurant_name,
+                        COUNT(ro.order_id) AS total_orders,
+                        COALESCE(SUM(orr.revenue), 0) AS total_revenue
+                    FROM {S}.restaurants r
+                    LEFT JOIN restaurant_orders ro ON r.restaurant_id = ro.restaurant_id
+                    LEFT JOIN order_revenue orr ON ro.order_id = orr.order_id
+                    GROUP BY r.restaurant_id, r.name
+                    ORDER BY total_revenue DESC;
                 """,
                 "chart": {"type": "table"},
                 "tags": ["manager"],
+                "params": []
+            },
+            "Manager: Query the order record of a certain restaurant (Table)": {
+                "sql": """
+                    SELECT o.order_id,
+                        o.order_time,
+                        o.delivery_address,
+                        u.name AS customer_name,
+                        u.phone AS customer_phone,
+                        o.payment_method
+                    FROM {S}.orders o
+                    JOIN {S}.users u ON o.user_id = u.user_id
+                    JOIN {S}.order_dishs od ON o.order_id = od.order_id
+                    JOIN {S}.dishs d ON od.dish_id = d.dish_id
+                    JOIN {S}.cooking_records cr ON o.order_id = cr.order_id
+                    JOIN {S}.equipments e ON cr.equipment_id = e.equipment_id
+                    JOIN {S}.smart_kitchens sk ON e.kitchen_id = sk.kitchen_id
+                    WHERE sk.restaurant_id = :restaurant_id
+                    GROUP BY o.order_id, o.order_time, o.delivery_address, u.name, u.phone, o.payment_method
+                    ORDER BY o.order_time DESC
+                    LIMIT 100;
+                """,
+                "chart": {"type": "table"},
+                "tags": ["manager"],
+                "params": ["restaurant_id"]
+            },
+            "Manager: Dish Sales Ranking (Bar)": {
+                "sql": """
+                    SELECT d.dish_name, 
+                           SUM(od.quantity) AS total_sold,
+                           d.category
+                    FROM {S}.dishs d
+                    JOIN {S}.order_dishs od ON d.dish_id = od.dish_id
+                    JOIN {S}.orders o ON od.order_id = o.order_id
+                    WHERE o.order_time >= CURRENT_DATE - INTERVAL '7 days'
+                    GROUP BY d.dish_id, d.dish_name, d.category
+                    ORDER BY total_sold DESC
+                    LIMIT 10;
+                """,
+                "chart": {"type": "bar", "x": "dish_name", "y": "total_sold"},
+                "tags": ["manager"],
+                "params": []
+            },
+            "Manager: Payment Method Distribution (Pie)": {
+                "sql": """
+                    SELECT payment_method,
+                        COUNT(*) AS order_count
+                    FROM {S}.orders
+                    GROUP BY payment_method
+                    ORDER BY order_count DESC;
+                """,
+                "chart": {"type": "pie", "names": "payment_method", "values": "order_count"},
+                "tags": ["manager"],
+                "params": []
+            },                                    
+
+            # User 2: CHEF
+            "Chef: Latest 20 Pending Dishes with Order and Restaurant Info (Table)": {
+                "sql": """
+                    SELECT DISTINCT o.order_id,
+                        o.order_time,
+                        r.name AS restaurant_name,
+                        d.dish_name,
+                        od.quantity,
+                        d.standard_cook_time,
+                        d.standard_cook_temp
+                    FROM {S}.orders o
+                    JOIN {S}.order_dishs od ON o.order_id = od.order_id
+                    JOIN {S}.dishs d ON od.dish_id = d.dish_id
+                    JOIN {S}.cooking_records cr ON o.order_id = cr.order_id AND od.dish_id = cr.dish_id
+                    JOIN {S}.equipments e ON cr.equipment_id = e.equipment_id
+                    JOIN {S}.smart_kitchens sk ON e.kitchen_id = sk.kitchen_id
+                    JOIN {S}.restaurants r ON sk.restaurant_id = r.restaurant_id
+                    WHERE r.restaurant_id = :restaurant_id
+                        AND o.order_id NOT IN (
+                            SELECT DISTINCT order_id FROM {S}.cooking_records 
+                            WHERE start_time::date = CURRENT_DATE
+                        )
+                    ORDER BY o.order_time DESC
+                    LIMIT 20;
+                """,
+                "chart": {"type": "table"},
+                "tags": ["chef"],
+                "params": ["restaurant_id"]
+            },
+            "Chef: Temperature Compliance Rate Statistics (Bar)": {
+                "sql": """
+                    SELECT d.dish_name, 
+                        COUNT(*) AS total_cooks,
+                        ROUND(SUM(CASE WHEN cr.temp_compliance = 'Yes' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS temp_compliance_rate
+                    FROM {S}.cooking_records cr
+                    JOIN {S}.dishs d ON cr.dish_id = d.dish_id
+                    WHERE cr.start_time >= CURRENT_DATE - INTERVAL ':days days'
+                    GROUP BY d.dish_id, d.dish_name
+                    HAVING COUNT(*) > 0
+                    ORDER BY temp_compliance_rate ASC
+                """,
+                "chart": {"type": "bar", "x": "dish_name", "y": "temp_compliance_rate"},
+                "tags": ["chef"],
                 "params": ["days"]
             },
-            "Mgr: rooms currently occupied (table)": {
+            "Chef: Time Compliance Rate Statistics (Bar)": {
                 "sql": """
-                    SELECT DISTINCT p.room_no
-                    FROM {S}.patients p
-                    ORDER BY p.room_no;
+                    SELECT d.dish_name, 
+                        COUNT(*) AS total_cooks,
+                        ROUND(SUM(CASE WHEN cr.time_compliance = 'Yes' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS time_compliance_rate
+                    FROM {S}.cooking_records cr
+                    JOIN {S}.dishs d ON cr.dish_id = d.dish_id
+                    WHERE cr.start_time >= CURRENT_DATE - INTERVAL ':days days'
+                    GROUP BY d.dish_id, d.dish_name
+                    HAVING COUNT(*) > 0
+                    ORDER BY time_compliance_rate ASC
                 """,
-                "chart": {"type": "table"},
-                "tags": ["manager"]
+                "chart": {"type": "bar", "x": "dish_name", "y": "time_compliance_rate"},
+                "tags": ["chef"],
+                "params": ["days"]
             },
-            "Mgr: doctor with oldest patients (table)": {
+            "Chef: Equipment Maintenance Reminder (Table)": {
                 "sql": """
-                    SELECT d.name, MAX(p.age) AS oldest_patient_age
-                    FROM {S}.doctors d
-                    JOIN {S}.patients p ON d.doctor_id = p.doctor_id
-                    GROUP BY d.name
-                    ORDER BY oldest_patient_age DESC
-                    LIMIT 1;
+                    SELECT e.equipment_id,
+                        sk.name AS kitchen_name,
+                        e.production_date,
+                        CASE WHEN COUNT(cr.record_id) > 1000 THEN 'Maintenance Required'
+                                WHEN e.production_date < CURRENT_DATE - INTERVAL '3 years' THEN 'Aging Equipment'
+                                ELSE 'Normal' END AS status
+                    FROM {S}.equipments e
+                    JOIN {S}.smart_kitchens sk ON e.kitchen_id = sk.kitchen_id
+                    LEFT JOIN {S}.cooking_records cr ON e.equipment_id = cr.equipment_id
+                    GROUP BY e.equipment_id, sk.name, e.production_date
+                    HAVING COUNT(cr.record_id) > 1000 OR e.production_date < CURRENT_DATE - INTERVAL '3 years'
+                    ORDER BY status, COUNT(cr.record_id) DESC;
                 """,
                 "chart": {"type": "table"},
-                "tags": ["manager"]
-            }
+                "tags": ["chef"],
+                "params": []
+            },
+
+            # User 3: DELIVERY PERSON
+            "Delivery: Latest Five Delivery Tasks (Table)": {
+                "sql": """
+                    SELECT o.order_id,
+                        o.order_time,
+                        o.delivery_address,
+                        u.name AS customer_name,
+                        u.phone AS customer_phone,
+                        COUNT(od.dish_id) AS total_items
+                    FROM {S}.orders o
+                    JOIN {S}.users u ON o.user_id = u.user_id
+                    JOIN {S}.order_dishs od ON o.order_id = od.order_id
+                    WHERE o.delivery_id = :delivery_id
+                    GROUP BY o.order_id, o.order_time, o.delivery_address, u.name, u.phone
+                    ORDER BY o.order_time DESC
+                    LIMIT 5;
+                """,
+                "chart": {"type": "table"},
+                "tags": ["delivery"],
+                "params": ["delivery_id"]
+            },
+            "Delivery: Top 5 Delivery Persons by Orders in Past Month (Bar)": {
+                "sql": """
+                    SELECT dp.name AS delivery_person,
+                        COUNT(DISTINCT o.order_id) AS total_orders
+                    FROM {S}.delivery_persons dp
+                    JOIN {S}.orders o ON dp.delivery_id = o.delivery_id
+                    WHERE o.order_time >= CURRENT_DATE - INTERVAL '30 days'
+                    GROUP BY dp.delivery_id, dp.name
+                    ORDER BY total_orders DESC
+                    LIMIT 5;
+                """,
+                "chart": {"type": "bar", "x": "delivery_person", "y": "total_orders"},
+                "tags": ["delivery"],
+                "params": []
+            },
+            "Delivery: All Delivery Records in Past Year (Table)": {
+                "sql": """
+                    SELECT o.order_id,
+                        o.order_time,
+                        o.delivery_address,
+                        u.name AS customer_name,
+                        u.phone AS customer_phone,
+                        o.payment_method,
+                        COUNT(od.dish_id) AS total_items,
+                        SUM(od.quantity * d.price) AS total_amount
+                    FROM {S}.orders o
+                    JOIN {S}.users u ON o.user_id = u.user_id
+                    JOIN {S}.order_dishs od ON o.order_id = od.order_id
+                    JOIN {S}.dishs d ON od.dish_id = d.dish_id
+                    WHERE o.delivery_id = :delivery_id
+                    AND o.order_time >= CURRENT_DATE - INTERVAL '365 days'
+                    GROUP BY o.order_id, o.order_time, o.delivery_address, u.name, u.phone, o.payment_method
+                    ORDER BY o.order_time DESC
+                    LIMIT 1000;
+                """,
+                "chart": {"type": "table"},
+                "tags": ["delivery"],
+                "params": ["delivery_id"]
+            },
+
+            # User 4: CUSTOMER
+            "Customer: My Order History (Table)": {
+                "sql": """
+                    -- Some users have not placed any orders for dishes.
+                    -- If "no rows" is displayed, you can try changing the value of user_id.
+                    SELECT o.order_id,
+                           o.order_time,
+                           o.delivery_address,
+                           o.payment_method,
+                           SUM(od.quantity * d.price) AS total_amount
+                    FROM {S}.orders o
+                    JOIN {S}.order_dishs od ON o.order_id = od.order_id
+                    JOIN {S}.dishs d ON od.dish_id = d.dish_id
+                    WHERE o.user_id = :user_id
+                    GROUP BY o.order_id, o.order_time, o.delivery_address, o.payment_method
+                    ORDER BY o.order_time DESC
+                    LIMIT 10;
+                """,
+                "chart": {"type": "table"},
+                "tags": ["customer"],
+                "params": ["user_id"]
+            },
+            "Customer: Most Ordered Dishes (Pie)": {
+                "sql": """
+                    SELECT d.dish_name,
+                           SUM(od.quantity) AS times_ordered
+                    FROM {S}.orders o
+                    JOIN {S}.order_dishs od ON o.order_id = od.order_id
+                    JOIN {S}.dishs d ON od.dish_id = d.dish_id
+                    WHERE o.user_id = :user_id
+                    GROUP BY d.dish_id, d.dish_name
+                    ORDER BY times_ordered DESC
+                    LIMIT 8;
+                """,
+                "chart": {"type": "pie", "names": "dish_name", "values": "times_ordered"},
+                "tags": ["customer"],
+                "params": ["user_id"]
+            },
+            "Customer: Price Distribution by Dish Category (Bar)": {
+                "sql": """
+                    SELECT category,
+                        COUNT(*) AS dish_count,
+                        ROUND(AVG(price), 2) AS avg_price,
+                        ROUND(MIN(price), 2) AS min_price,
+                        ROUND(MAX(price), 2) AS max_price
+                    FROM {S}.dishs
+                    GROUP BY category
+                    ORDER BY avg_price DESC;
+                """,
+                "chart": {"type": "bar", "x": "category", "y": "avg_price"},
+                "tags": ["customer"],
+                "params": []
+            },    
+            "Customer: Dish Price Ranking (Table)": {
+                "sql": """
+                    SELECT dish_name,
+                        price,
+                        category
+                    FROM {S}.dishs
+                    ORDER BY price DESC;
+                """,
+                "chart": {"type": "table"},
+                "tags": ["customer"],
+                "params": []
+            },                    
+
+            # User 5: 
+            "Quality: Dishes with a low temperature compliance rate (Table)": {
+                "sql": """
+                    SELECT d.dish_name,
+                        COUNT(*) AS total_cooks,
+                        ROUND(SUM(CASE WHEN cr.temp_compliance = 'Yes' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS compliance_rate
+                    FROM {S}.cooking_records cr
+                    JOIN {S}.dishs d ON cr.dish_id = d.dish_id
+                    WHERE cr.start_time >= CURRENT_DATE - INTERVAL '1 day'
+                    GROUP BY d.dish_id, d.dish_name
+                    HAVING COUNT(*) > 0
+                    ORDER BY compliance_rate ASC
+                    LIMIT 5;
+                """,
+                "chart": {"type": "table"},
+                "tags": ["quality"],
+                "params": []
+            },
+            "Quality: Dishes with a low time compliance rate (Table)": {
+                "sql": """
+                    SELECT d.dish_name,
+                        COUNT(*) AS total_cooks,
+                        ROUND(SUM(CASE WHEN cr.time_compliance = 'Yes' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS compliance_rate
+                    FROM {S}.cooking_records cr
+                    JOIN {S}.dishs d ON cr.dish_id = d.dish_id
+                    WHERE cr.start_time >= CURRENT_DATE - INTERVAL '1 day'
+                    GROUP BY d.dish_id, d.dish_name
+                    HAVING COUNT(*) > 0
+                    ORDER BY compliance_rate ASC
+                    LIMIT 5;
+                """,
+                "chart": {"type": "table"},
+                "tags": ["quality"],
+                "params": []
+            },
+            "Quality: Abnormal Cooking Record Analysis (Table)": {
+                "sql": """
+                    SELECT cr.record_id,
+                        d.dish_name,
+                        e.equipment_id,
+                        cr.average_cook_temperature,
+                        cr.temp_compliance,
+                        cr.time_compliance,
+                        cr.start_time
+                    FROM {S}.cooking_records cr
+                    JOIN {S}.dishs d ON cr.dish_id = d.dish_id
+                    JOIN {S}.equipments e ON cr.equipment_id = e.equipment_id
+                    WHERE cr.temp_compliance = 'No' OR cr.time_compliance = 'No'
+                    ORDER BY cr.start_time DESC
+                """,
+                "chart": {"type": "table"},
+                "tags": ["quality"],
+                "params": []
+            },
+            "Quality: Dish Compliance Rate Comparison (Bar)": {
+                "sql": """
+                    SELECT d.dish_name,
+                        ROUND(SUM(CASE WHEN cr.temp_compliance = 'Yes' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS temp_compliance_rate,
+                        ROUND(SUM(CASE WHEN cr.time_compliance = 'Yes' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS time_compliance_rate
+                    FROM {S}.dishs d
+                    LEFT JOIN {S}.cooking_records cr ON d.dish_id = cr.dish_id
+                    GROUP BY d.dish_id, d.dish_name
+                    HAVING COUNT(*) > 0
+                    ORDER BY temp_compliance_rate DESC
+                """,
+                "chart": {"type": "bar", "x": "dish_name", "y": ["temp_compliance_rate", "time_compliance_rate"]},
+                "tags": ["quality"],
+                "params": []
+            }            
         }
     },
 
     "mongo": {
         "enabled": True,
-        "uri": os.getenv("MONGO_URI", "mongodb://localhost:27017"),  # Will read from the .env file
-        "db_name": os.getenv("MONGO_DB", "eldercare"),               # Will read from the .env file
-        
-        # CHANGE: Just like above, replace all the following Mongo queries with your own, for the different users you identified
+        "uri": os.getenv("MONGO_URI", "mongodb://localhost:27017"),
+        "db_name": os.getenv("MONGO_DB", "smartKitchen"),
+    
         "queries": {
-            "TS: Hourly avg heart rate (resident 501, last 24h)": {
-                "collection": "bracelet_readings_ts",
+            "TS: Latest 20 Sensor Data Records (Table)": {
+                "collection": "sensor",
                 "aggregate": [
-                    {"$match": {
-                        "meta.resident_id": 501,
-                        "ts": {"$gte": dt.datetime.utcnow() - dt.timedelta(hours=24)}
-                    }},
+                    {"$sort": {"ts": -1}},
+                    {"$limit": 20},
                     {"$project": {
-                        "hour": {"$dateTrunc": {"date": "$ts", "unit": "hour"}},
-                        "hr": "$heart_rate_bpm"
-                    }},
-                    {"$group": {"_id": "$hour", "avg_hr": {"$avg": "$hr"}, "n": {"$count": {}}}},
-                    {"$sort": {"_id": 1}}
-                ],
-                "chart": {"type": "line", "x": "_id", "y": "avg_hr"}
-            },
-
-            "TS: Exceedance counts (SpO2 < 92, last 7 days) by resident": {
-                "collection": "bracelet_readings_ts",
-                "aggregate": [
-                    {"$match": {
-                        "ts": {"$gte": dt.datetime.utcnow() - dt.timedelta(days=7)},
-                        "spo2_pct": {"$lt": 92}
-                    }},
-                    {"$group": {"_id": "$meta.resident_id", "hits": {"$count": {}}}},
-                    {"$sort": {"hits": -1}}
-                ],
-                "chart": {"type": "bar", "x": "_id", "y": "hits"}
-            },
-
-            "Telemetry: Latest reading per device": {
-                "collection": "bracelet_data",
-                "aggregate": [
-                    {"$sort": {"ts": -1, "_id": -1}},
-                    {"$group": {"_id": "$device_id", "doc": {"$first": "$$ROOT"}}},
-                    {"$replaceRoot": {"newRoot": "$doc"}},
-                    {"$project": {
-                        "_id": 0, "device_id": 1, "resident_id": 1, "ts": 1,
-                        "hr": "$metrics.heart_rate_bpm", "spo2": "$metrics.spo2_pct",
-                        "status": 1
+                        "_id": 0,
+                        "Time": "$ts",
+                        "Sensor ID": "$meta.sensor_id",
+                        "Equipment ID": "$meta.equipment_id",
+                        "Temperature(℃)": "$temperature_c",
+                        "Humidity(%)": "$humidity_pct",
+                        "Smoke Concentration": "$smoke_concentration.value",
+                        "Status": "$status"
                     }}
                 ],
                 "chart": {"type": "table"}
             },
 
-            "Telemetry: Battery status distribution": {
-                "collection": "bracelet_data",
+            "Telemetry: Current Temperature and Smoke Concentration for All Equipment (Table)": {
+                "collection": "sensor",
                 "aggregate": [
+                    {"$sort": {"ts": -1}},
+                    {"$group": {
+                        "_id": "$meta.equipment_id",
+                        "Latest Time": {"$first": "$ts"},
+                        "Temperature(℃)": {"$first": "$temperature_c"},
+                        "Humidity(%)": {"$first": "$humidity_pct"},
+                        "Smoke Concentration": {"$first": "$smoke_concentration.value"},
+                        "Status": {"$first": "$status"}
+                    }},
+                    {"$sort": {"_id": 1}},
                     {"$project": {
-                        "battery": {"$ifNull": ["$battery_pct", None]},
-                        "bucket": {
-                            "$switch": {
-                                "branches": [
-                                    {"case": {"$gte": ["$battery_pct", 80]}, "then": "80–100"},
-                                    {"case": {"$gte": ["$battery_pct", 60]}, "then": "60–79"},
-                                    {"case": {"$gte": ["$battery_pct", 40]}, "then": "40–59"},
-                                    {"case": {"$gte": ["$battery_pct", 20]}, "then": "20–39"},
-                                ],
-                                "default": "<20 or null"
+                        "_id": 0,
+                        "Equipment ID": "$_id",
+                        "Latest Time": 1,
+                        "Temperature(℃)": 1,
+                        "Humidity(%)": 1,
+                        "Smoke Concentration": 1,
+                        "Status": 1
+                    }}
+                ],
+                "chart": {"type": "table"}
+            },
+
+            "Telemetry: Sensor Failure Rate by Sensor (Bar)": {
+                "collection": "sensor",
+                "aggregate": [
+                    {"$group": {
+                        "_id": "$meta.sensor_id",
+                        "total_records": {"$sum": 1},
+                        "failure_records": {
+                            "$sum": {
+                                "$cond": [{"$ne": ["$status", "ok"]}, 1, 0]
                             }
                         }
                     }},
-                    {"$group": {"_id": "$bucket", "cnt": {"$count": {}}}},
-                    {"$sort": {"cnt": -1}}
+                    {"$project": {
+                        "_id": 0,
+                        "Sensor ID": "$_id",
+                        "Total Records": "$total_records",
+                        "Failure Records": "$failure_records",
+                        "Failure Rate (%)": {
+                            "$round": [
+                                {"$multiply": [
+                                    {"$divide": ["$failure_records", "$total_records"]},
+                                    100
+                                ]},
+                                2
+                            ]
+                        }
+                    }},
+                    {"$match": {
+                        "Total Records": {"$gt": 0}
+                    }},
+                    {"$sort": {"Failure Rate (%)": -1}},
+                    # {"$limit": 20}
                 ],
-                "chart": {"type": "pie", "names": "_id", "values": "cnt"}
+                "chart": {"type": "bar", "x": "Sensor ID", "y": "Failure Rate (%)"}
+            },            
+
+            "TS: Equipment with Current High Temperature (Table)": {
+                "collection": "sensor",
+                "aggregate": [
+                    {"$sort": {"ts": -1}},
+                    {"$group": {
+                        "_id": "$meta.equipment_id",
+                        "Latest Time": {"$first": "$ts"},
+                        "Temperature(℃)": {"$first": "$temperature_c"},
+                        "Humidity(%)": {"$first": "$humidity_pct"},
+                        "Smoke Concentration": {"$first": "$smoke_concentration.value"},
+                        "Status": {"$first": "$status"}
+                    }},
+                    {"$match": {
+                        "Temperature(℃)": {"$gt": 100}
+                    }},
+                    {"$sort": {"Temperature(℃)": -1}},
+                    {"$project": {
+                        "_id": 0,
+                        "Equipment ID": "$_id",
+                        "Latest Time": 1,
+                        "Temperature(℃)": 1,
+                        "Humidity(%)": 1,
+                        "Smoke Concentration": 1,
+                        "Status": 1
+                    }}
+                ],
+                "chart": {"type": "table"}
             },
 
-            "TS Treemap: readings count by resident and device (last 24h)": {
-                "collection": "bracelet_readings_ts",
+            "TS: Equipment with Current High Smoke Concentration (Table)": {
+                "collection": "sensor",
                 "aggregate": [
-                    {"$match": {"ts": {"$gte": dt.datetime.utcnow() - dt.timedelta(hours=24)}}},
-                    {"$group": {"_id": {"resident": "$meta.resident_id", "device": "$meta.device_id"}, "cnt": {"$count": {}}}},
-                    {"$project": {"resident": "$_id.resident", "device": "$_id.device", "cnt": 1, "_id": 0}}
+                    {"$sort": {"ts": -1}},
+                    {"$group": {
+                        "_id": "$meta.equipment_id",
+                        "Latest Time": {"$first": "$ts"},
+                        "Temperature(℃)": {"$first": "$temperature_c"},
+                        "Humidity(%)": {"$first": "$humidity_pct"},
+                        "Smoke Concentration": {"$first": "$smoke_concentration.value"},
+                        "Status": {"$first": "$status"}
+                    }},
+                    {"$match": {
+                        "Smoke Concentration": {"$gt": 800}
+                    }},
+                    {"$sort": {"Smoke Concentration": -1}},
+                    {"$project": {
+                        "_id": 0,
+                        "Equipment ID": "$_id",
+                        "Latest Time": 1,
+                        "Temperature(℃)": 1,
+                        "Humidity(%)": 1,
+                        "Smoke Concentration": 1,
+                        "Status": 1
+                    }}
                 ],
-                "chart": {"type": "treemap", "path": ["resident", "device"], "values": "cnt"}
-            }
+                "chart": {"type": "table"}
+            },            
+                        
+            "TS: Current Sensor Status Monitoring (Pie)": {
+                "collection": "sensor",
+                "aggregate": [
+                    {"$sort": {"ts": -1}},
+                    {"$group": {
+                        "_id": "$meta.sensor_id",
+                        "Latest Status": {"$first": "$status"},
+                        "Last Update Time": {"$first": "$ts"}
+                    }},
+                    {"$group": {
+                        "_id": "$Latest Status",
+                        "Sensor Count": {"$count": {}}
+                    }}
+                ],
+                "chart": {"type": "pie", "names": "_id", "values": "Sensor Count"}
+            },
+
+            "Telemetry: Data Volume Statistics by Equipment (Bar)": {
+                "collection": "sensor",
+                "aggregate": [
+                    {"$group": {
+                        "_id": "$meta.equipment_id",
+                        "Data Volume": {"$count": {}}
+                    }},
+                    {"$sort": {"Data Volume": -1}}
+                ],
+                "chart": {"type": "bar", "x": "_id", "y": "Data Volume"}
+            },
+
+            "Telemetry: Equipment Status Anomaly Records (Table)": {
+                "collection": "sensor",
+                "aggregate": [
+                    {"$match": {
+                        "status": {"$ne": "ok"}
+                    }},
+                    {"$project": {
+                        "_id": 0,
+                        "Time": "$ts",
+                        "Equipment ID": "$meta.equipment_id",
+                        "Sensor ID": "$meta.sensor_id",
+                        "Status": "$status"
+                    }},
+                    {"$sort": {"Time": -1}}
+                ],
+                "chart": {"type": "table"}
+            },
+
+            "Telemetry: Average Sensor Readings (Table)": {
+                "collection": "sensor",
+                "aggregate": [
+                    {"$group": {
+                        "_id": None,
+                        "Average Temperature": {"$avg": "$temperature_c"},
+                        "Average Humidity": {"$avg": "$humidity_pct"},
+                        "Average Smoke Concentration": {"$avg": "$smoke_concentration.value"},
+                        "Record Count": {"$count": {}}
+                    }},
+                    {"$project": {
+                        "_id": 0,
+                        "Average Temperature": {"$round": ["$Average Temperature", 1]},
+                        "Average Humidity": {"$round": ["$Average Humidity", 1]},
+                        "Average Smoke Concentration": {"$round": ["$Average Smoke Concentration", 1]},
+                        "Record Count": 1
+                    }}
+                ],
+                "chart": {"type": "table"}
+            }       
         }
-    }
+    }    
 }
 
 # The following block of code will create a simple Streamlit dashboard page
-st.set_page_config(page_title="Old-Age Home DB Dashboard", layout="wide")
-st.title("Old-Age Home | Mini Dashboard (Postgres + MongoDB)")
+st.set_page_config(page_title="Smart Kitchen DB Dashboard", layout="wide")
+st.title("Smart Kitchen | Mini Dashboard (Postgres + MongoDB)")
 
 def metric_row(metrics: dict):
     cols = st.columns(len(metrics))
@@ -384,8 +623,17 @@ def get_pg_engine(uri: str):
 
 @st.cache_data(ttl=60)
 def run_pg_query(_engine, sql: str, params: dict | None = None):
+    import pandas as pd
     with _engine.connect() as conn:
         return pd.read_sql(text(sql), conn, params=params or {})
+
+#@st.cache_data(ttl=60)
+#def run_pg_query(_engine, sql: str, params: dict | None = None, enc: str = None):
+#    import pandas as pd
+#    with _engine.connect() as conn:
+#        if enc:
+#            conn.exec_driver_sql(f"SET client_encoding TO '{enc}'")
+#        return pd.read_sql(text(sql), conn, params=params or {})
 
 @st.cache_resource
 def get_mongo_client(uri: str):
@@ -442,10 +690,8 @@ def render_chart(df: pd.DataFrame, spec: dict):
     else:
         st.dataframe(df, use_container_width=True)
 
-# The following block of code is for the dashboard sidebar, where you can pick your users, provide parameters, etc.
 with st.sidebar:
     st.header("Connections")
-    # These fields are pre-filled from .env file
     pg_uri = st.text_input("Postgres URI", CONFIG["postgres"]["uri"])     
     mongo_uri = st.text_input("Mongo URI", CONFIG["mongo"]["uri"])        
     mongo_db = st.text_input("Mongo DB name", CONFIG["mongo"]["db_name"]) 
@@ -453,32 +699,37 @@ with st.sidebar:
     auto_run = st.checkbox("Auto-run on selection change", value=False, key="auto_run_global")
 
     st.header("Role & Parameters")
-    # CHANGE: Change the different roles, the specific attributes, parameters used, etc., to match your own Information System
-    role = st.selectbox("User role", ["doctor","nurse","pharmacist","guardian","manager","all"], index=5)
-    doctor_id = st.number_input("doctor_id", min_value=1, value=1, step=1)
-    nurse_id = st.number_input("nurse_id", min_value=1, value=2, step=1)
-    patient_name = st.text_input("patient_name", value="Alice")
-    age_threshold = st.number_input("age_threshold", min_value=0, value=85, step=1)
-    days = st.slider("last N days", 1, 90, 7)
-    med_low_threshold = st.number_input("med_low_threshold", min_value=0, value=5, step=1)
-    reorder_threshold = st.number_input("reorder_threshold", min_value=0, value=10, step=1)
+    # Postgres
+    st.subheader("Postgres parameters")
+    role = st.selectbox("User role", ["manager", "chef", "delivery", "customer", "quality", "all"], index=5)
+    user_id = st.number_input("user_id", min_value=1, value=1, step=1)
+    delivery_id = st.number_input("delivery_id", min_value=1, value=1, step=1)
+    restaurant_id = st.number_input("restaurant_id", min_value=1, value=1, step=1)
+    # kitchen_id = st.number_input("kitchen_id", min_value=1, value=1, step=1)
+    days = st.slider("last N days", 1, 365, 7)
+    
+    # MongoDB
+    # st.subheader("MongoDB parameters")
+    # equipment_id = st.text_input("equipment_id", value="E079")
+    # sensor_id = st.text_input("sensor_id", value="aq-001-1")
+    
 
     PARAMS_CTX = {
-        "doctor_id": int(doctor_id),
-        "nurse_id": int(nurse_id),
-        "patient_name": patient_name,
-        "age_threshold": int(age_threshold),
+        "user_id": int(user_id),
+        "delivery_id": int(delivery_id),
+        "restaurant_id": int(restaurant_id),
+        # "kitchen_id": int(kitchen_id),
         "days": int(days),
-        "med_low_threshold": int(med_low_threshold),
-        "reorder_threshold": int(reorder_threshold),
-    }
+        # "equipment_id": equipment_id,
+        # "sensor_id": sensor_id
+    } 
 
 #Postgres part of the dashboard
 st.subheader("Postgres")
+
 try:
     
     eng = get_pg_engine(pg_uri)
-
     with st.expander("Run Postgres query", expanded=True):
         # The following will filter queries by role
         def filter_queries_by_role(qdict: dict, role: str) -> dict:
@@ -504,6 +755,11 @@ try:
                 params = {k: PARAMS_CTX[k] for k in wanted}
                 df = run_pg_query(eng, sql, params=params)
                 render_chart(df, q["chart"])
+            #if run:
+            #    wanted = q.get("params", [])
+            #    params = {k: PARAMS_CTX[k] for k in wanted}
+            #    df = run_pg_query(eng, sql, params=params, enc=os.getenv("PG_CLIENT_ENCODING", "UTF8"))
+            #    render_chart(df, q["chart"])            
         else:
             st.info("No Postgres queries tagged for this role.")
 except Exception as e:
