@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shinchan - Homepage</title>
+</head>
+<body>
+    <!-- <span style="margin-right: 700px;">05/04/2025, 17:16</span>
+    <span>Shinchan - Homepage</span>
+    <br> -->
+    <img src="./shin-chan-banner.jpg" width="1150">
+    <img src="./naughtiest-son.jpg" width="460">
+    <br>
+    
+    <section style="text-align: center;">
+        <a href="#video" style="font-size: 14px;">Shinchan: Shiro and the Coal Town Game</a>&nbsp
+        <a href="#character" style="font-size: 14px;">Characters</a>&nbsp
+        <a href="#favorite" style="font-size: 14px;">Who's your favorite?</a>&nbsp
+        <br>
+    </section>
+
+    <section id="video" style="text-align: center;">
+        <h1>Shinchan: Shiro and the Coal Town</h1>
+        <!-- <strong style="font-size: 24px;">Shinchan: Shiro and the Coal Town</strong> -->
+        <!-- <br> -->
+        <p>(Available on: Nintendo Switch and Windows PC)</p>
+        <!-- <span style="font-size: 16px;">(Available on: Nintendo Switch and Windows PC)</span> -->
+        <video src="./shinchan-and-the-coal-town.mp4" controls ></video>
+    </section>
+    
+    <section id="character" style="text-align: center; margin-top: 30px;">
+
+        <h2>The Characters</h2>
+        
+        <!-- <table border="0" style="
+            margin-top: 0;
+            margin-right: auto;
+            margin-bottom: 0;
+            margin-left: auto;
+            ">     -->
+        <table width: 100%; border="0" style="margin: 0 auto; max-width: 1000px;">
+        
+            <tr>
+                <td style="padding: 10px; text-align: center;">
+                    <h3>Shinnosuke Nohara (Shinchan)</h3>
+                    <br><br>
+                    <img src="./character-shinchan.png" alt="Shinnosuke Nohara" style="width: 100px; height: 100px;"><br>
+                    <br><br>
+                    The mischievous 5-year-old protagonist known for his hilarious antics and love of choco chips.
+                </td>
+                <td style="padding: 10px; text-align: center;">
+                    <h3>Misae Nohara (Mom)</h3>
+                    <br><br>
+                    <img src="./character-misae.webp" alt="Misae Nohara" style="width: 100px; height: 100px;">
+                    <br><br>
+                    Shinchan's short-tempered but loving mother, always trying to keep him in line.
+                </td>
+                <td style="padding: 10px; text-align: center;">
+                    <h3>Hiroshi Nohara (Dad)</h3>
+                    <br><br>
+                    <img src="./character-hiroshi.webp" alt="Hiroshi Nohara" style="width: 100px; height: 100px;">
+                    <br><br>
+                    The laid-back father who works at a company and enjoys his evening beer.
+                </td>
+            </tr>
+
+            <tr>
+                <td style="padding: 10px; text-align: center;">
+                    <h3>Himawari (Sister)</h3>
+                    <br><br>
+                    <img src="./character-himawari.png" alt="Himawari" style="width: 100px; height: 100px;">
+                    <br><br>
+                    The youngest of the Noharas. Loves shiny objects and brand name goods. Smiles sideways, like Shinchan
+                </td>
+                <td style="padding: 10px; text-align: center;">
+                    <h3>Yukino Nohara (Shiro)</h3>
+                    <br><br>
+                    <img src="./character-shiro.png" alt="Yukino Nohara" style="width: 100px; height: 100px;">
+                    <br><br>
+                    The family dog — small, fluffy, and sometimes the most sensible member of the household.
+                </td>
+                <td style="padding: 10px; text-align: center;">
+                    <h3>Toru Kazama</h3>
+                    <br><br>
+                    <img src="./character-toru-kazama.webp" alt="Toru Kazama" style="width: 100px; height: 100px;">
+                    <br><br>
+                    The smart and responsible friend of Shinchan, often the voice of reason in the group.
+                </td>
+            </tr>
+        </table>
+    </section>
+
+    <!-- <br>
+    <h2>Who's your favorite?</h2>
+    Who's your favorite character?
+    <br>
+    <h3>Character not in the list? Write their name below:</h3>
+    Your other favourite character: 
+    <br>
+    Why do you like this character? -->
+
+    <br>
+
+    <section id="favorite" style="margin-left: 40px;">
+
+        <h2>Who's your favorite?</h2>
+        <label for="character">Who's your favorite character?</label>
+        <!-- Who's your favorite character? -->
+        <!-- <input type="" > -->
+         <select id="character">
+            <option value="">Shinnosuke</option>
+            <option value="">Mom</option>
+            <option value="">Dad</option>
+            <option value="">Sister</option>
+            <option value="">Shiro</option>
+            <option value="">Toru Kazama</option>
+         </select>
+
+        <h3>Character not in the list? Write their name below:</h3>
+        <label for="character">Your other favourite character:</label>
+        <!-- Your other favourite character: -->
+        <input type="character name" id="character" value="Enter character name">
+        <br><br>
+
+        <label for="reason">Why do you like this character?</label>
+        <!-- Why do you like this character?  -->
+        <br><br>
+        <textarea name="reason" id="reason" rows="6" cols="50">your reasons in a couple of lines...</textarea>
+        <!-- <input type="text" id="reason" value="your reasons in a couple of lines..."> -->
+
+        <h3>Tell us a bit more about yourself </h3>
+
+        <!-- Your Name:  -->
+        <label for="name">Your Name:</label>
+        <input type="name" id="name" name="name" value="Enter your name">
+        <br><br>
+
+        <label>Your Gender: </label>
+        <input type="radio" id="male" name="gender" value="male">
+        <label for="male">Male</label>
+        <input type="radio" id="female" name="gender" value="female">
+        <label for="female">Female</label>
+        <br><br>
+
+        <label for="Birth">Your Date of Birth:</label>
+        <!-- Your Date of Birth:  -->
+        <input type="date" id="Birth" name="Birth" value="dd.mm.yyyy">
+        <br><br>
+
+        <label for="Email">Your Email:</label>
+        <!-- Your Email:  -->
+        <input type="char" id="Email" name="Email" value="Enter your email">
+        <br><br>
+        <button>Submit</button>
+        <br>
+        
+    </section>
+
+</body>
+</html>
